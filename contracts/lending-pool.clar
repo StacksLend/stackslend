@@ -188,6 +188,15 @@
     ;; Validate new debt doesn't exceed max borrow
     (asserts! (<= new-debt max-borrow) ERR_EXCEEDED_MAX_BORROW)
 
+    ;; Accrue interest
+    (unwrap-panic (accrue-interest))
+
+    ;; Update borrows map
+    (map-set borrows { user: tx-sender } {
+      amount: new-debt,
+      last-accrued: stacks-block-time,
+    })
+
     (ok true)
   )
 )
