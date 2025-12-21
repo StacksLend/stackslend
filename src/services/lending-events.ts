@@ -1,4 +1,6 @@
-import { StacksTransaction } from '@hirosystems/chainhook-client';
+import type { Payload } from '@hirosystems/chainhook-client/dist/schemas/payload';
+
+type StacksTransaction = Payload['apply'][0]['transactions'][0];
 
 export interface DepositEvent {
   txId: string;
@@ -41,7 +43,7 @@ const repayments: RepaymentEvent[] = [];
 const liquidations: LiquidationEvent[] = [];
 
 export async function handleDeposit(tx: StacksTransaction): Promise<void> {
-  const depositor = tx.metadata.sender_address;
+  const depositor = tx.operations[0]?.account.address || 'unknown';
   
   // Extract amount from transaction operations
   const amount = extractAmountFromOps(tx.operations);
@@ -51,7 +53,7 @@ export async function handleDeposit(tx: StacksTransaction): Promise<void> {
     depositor,
     amount,
     timestamp: Date.now(),
-    blockHeight: tx.metadata.position.index
+    blockHeight: 0 // Will be set from block context
   };
   
   deposits.push(depositEvent);
@@ -60,7 +62,7 @@ export async function handleDeposit(tx: StacksTransaction): Promise<void> {
 }
 
 export async function handleBorrow(tx: StacksTransaction): Promise<void> {
-  const borrower = tx.metadata.sender_address;
+  const borrower = tx.operations[0]?.account.address || 'unknown';
   const amount = extractAmountFromOps(tx.operations);
   
   const borrowEvent: BorrowEvent = {
@@ -68,7 +70,7 @@ export async function handleBorrow(tx: StacksTransaction): Promise<void> {
     borrower,
     amount,
     timestamp: Date.now(),
-    blockHeight: tx.metadata.position.index
+    blockHeight: 0
   };
   
   borrows.push(borrowEvent);
@@ -77,7 +79,7 @@ export async function handleBorrow(tx: StacksTransaction): Promise<void> {
 }
 
 export async function handleRepay(tx: StacksTransaction): Promise<void> {
-  const borrower = tx.metadata.sender_address;
+  const borrower = tx.operations[0]?.account.address || 'unknown';
   const amount = extractAmountFromOps(tx.operations);
   
   const repaymentEvent: RepaymentEvent = {
@@ -85,7 +87,7 @@ export async function handleRepay(tx: StacksTransaction): Promise<void> {
     borrower,
     amount,
     timestamp: Date.now(),
-    blockHeight: tx.metadata.position.index
+    blockHeight: 0
   };
   
   repayments.push(repaymentEvent);
@@ -94,7 +96,7 @@ export async function handleRepay(tx: StacksTransaction): Promise<void> {
 }
 
 export async function handleLiquidation(tx: StacksTransaction): Promise<void> {
-  const liquidator = tx.metadata.sender_address;
+  const liquidator = tx.operations[0]?.account.address || 'unknown';
   
   // Extract borrower from contract call arguments
   const borrower = extractBorrowerFromArgs(tx);
@@ -107,7 +109,7 @@ export async function handleLiquidation(tx: StacksTransaction): Promise<void> {
     collateralAmount,
     debtAmount: '0', // TODO: Calculate from contract state
     timestamp: Date.now(),
-    blockHeight: tx.metadata.position.index
+    blockHeight: 0
   };
   
   liquidations.push(liquidationEvent);
@@ -119,19 +121,23 @@ export async function handleLiquidation(tx: StacksTransaction): Promise<void> {
 function extractAmountFromOps(operations: any[]): string {
   for (const op of operations) {
     if (op.amount?.value) {
-      return op.amount.value;
+      return op.amount.value.toString();
     }
   }
   return '0';
 }
 
 function extractBorrowerFromArgs(tx: StacksTransaction): string {
-  // Extract from contract call arguments
+  // Extract from contract call metadata
   for (const op of tx.operations) {
-    if (op.type === 'contract_call' && op.metadata?.args) {
-      const args = op.metadata.args;
-      if (Array.isArray(args) && args.length > 0) {
-        return args[0].repr || 'unknown';
+    if (op.metadata?.args) {
+      try {
+        const args = JSON.parse(op.metadata.args);
+        if (args && args.length > 0) {
+          return args[0] || 'unknown';
+        }
+      } catch {
+        // Ignore parse errors
       }
     }
   }

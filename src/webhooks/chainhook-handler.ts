@@ -1,4 +1,4 @@
-import { ChainhookEvent } from '@hirosystems/chainhook-client';
+import type { Payload } from '@hirosystems/chainhook-client/dist/schemas/payload';
 import express from 'express';
 import {
   handleDeposit,
@@ -12,18 +12,15 @@ const router = express.Router();
 // Webhook endpoint for Chainhook events
 router.post('/events', async (req, res) => {
   try {
-    const event: ChainhookEvent = req.body;
+    const payload: Payload = req.body;
     
     console.log('📨 Received Chainhook event:', {
-      chainhook: event.chainhook.name,
-      chain: event.event.chain,
-      network: event.event.network,
-      applyBlocks: event.event.apply.length,
-      rollbackBlocks: event.event.rollback.length
+      applyBlocks: payload.apply.length,
+      rollback: payload.rollback.length
     });
     
     // Process the event
-    await processLendingEvent(event);
+    await processLendingEvent(payload);
     
     res.status(200).json({ success: true });
   } catch (error) {
@@ -32,20 +29,18 @@ router.post('/events', async (req, res) => {
   }
 });
 
-async function processLendingEvent(event: ChainhookEvent) {
+async function processLendingEvent(payload: Payload) {
   // Extract transactions from the event
-  for (const block of event.event.apply) {
+  for (const block of payload.apply) {
     console.log(`📦 Processing block ${block.block_identifier.index}`);
     
     for (const tx of block.transactions) {
       // Check for contract calls to lending-pool
       for (const op of tx.operations) {
-        if (op.type === 'contract_call' && 
-            op.metadata.contract_identifier.includes('lending-pool')) {
+        if (op.metadata?.method_name) {
+          const functionName = op.metadata.method_name;
           
-          const functionName = op.metadata.function_name;
-          
-          console.log(`🔧 Contract call: ${functionName} by ${tx.metadata.sender_address}`);
+          console.log(`🔧 Contract call: ${functionName} by ${op.account.address}`);
           
           switch (functionName) {
             case 'deposit-stx':
